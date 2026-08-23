@@ -4,7 +4,7 @@ import compatWasmUrl from '@wllama/wllama-compat/wasm/wllama.wasm?url';
 import compatWorkerCode from '@wllama/wllama-compat/wasm/wllama.js?raw';
 import { DEFAULT_CONTEXT, DEFAULT_MAX_TOKENS, PROFILES, type ChatMessage, type ModelFamily, type ModelInfo } from './types';
 
-export interface RuntimeStatus { state: 'idle' | 'loading' | 'ready' | 'generating' | 'error'; message: string; supportsWebGpu: boolean; crossOriginIsolated: boolean; }
+export interface RuntimeStatus { state: 'idle' | 'loading' | 'ready' | 'generating' | 'stopping' | 'error'; message: string; supportsWebGpu: boolean; crossOriginIsolated: boolean; }
 export interface InferenceEngine { load(file: File, profile: ModelFamily): Promise<ModelInfo>; generate(messages: ChatMessage[], onToken: (text: string) => void): Promise<void>; abort(): void; unload(): Promise<void>; status(): RuntimeStatus; }
 
 export class WllamaEngine implements InferenceEngine {
@@ -72,9 +72,16 @@ export class WllamaEngine implements InferenceEngine {
     try {
       await this.instance.createChatCompletion({ model: 'local', messages: messages.filter(m => !m.incomplete).map(m => ({ role: m.role, content: m.content })), max_tokens: DEFAULT_MAX_TOKENS, temperature: 0.7, stream: true, abortSignal: this.controller.signal, onData: chunk => onToken(chunk.choices[0]?.delta.content ?? '') });
       this.current = { ...this.current, state: 'ready', message: 'Ready.' };
-    } finally { this.controller = null; }
+    } finally {
+      this.controller = null;
+      // AbortError exits the streaming loop before the success assignment above.
+      // Always release the UI from its generating/stopping state afterwards.
+      if (this.current.state === 'generating' || this.current.state === 'stopping') {
+        this.current = { ...this.current, state: 'ready', message: this.stoppedByUser ? 'Generation stopped.' : 'Ready.' };
+      }
+    }
   }
-  abort() { this.stoppedByUser = true; this.controller?.abort(); }
+  abort() { this.stoppedByUser = true; this.current = { ...this.current, state: 'stopping', message: 'Stopping generation…' }; this.controller?.abort(); }
   wasStoppedByUser() { return this.stoppedByUser; }
   async unload() { this.controller?.abort(); if (this.instance) await this.instance.exit(); this.instance = null; if (this.current.state !== 'loading') this.current = { ...this.current, state: 'idle', message: 'Model unloaded. Chats remain saved on this device.' }; }
 }
