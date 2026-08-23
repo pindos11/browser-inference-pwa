@@ -4,6 +4,16 @@ const DB_NAME = 'local-gguf-chat';
 const DB_VERSION = 1;
 type Store = 'chats' | 'messages' | 'settings';
 
+// Older records can have an identical timestamp for a user prompt and its
+// assistant placeholder. IndexedDB orders those by random UUID key, so retain
+// the natural prompt-before-reply order for that tie.
+export function compareMessages(a: ChatMessage, b: ChatMessage) {
+  const byTime = a.createdAt.localeCompare(b.createdAt);
+  if (byTime) return byTime;
+  const roleOrder = { system: 0, user: 1, assistant: 2 } as const;
+  return roleOrder[a.role] - roleOrder[b.role] || a.id.localeCompare(b.id);
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -44,7 +54,7 @@ export const storage = {
       const tx = db.transaction('messages', 'readonly');
       const index = tx.objectStore('messages').index('chatId');
       const req = index.getAll(chatId);
-      req.onsuccess = () => resolve((req.result as ChatMessage[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+      req.onsuccess = () => resolve((req.result as ChatMessage[]).sort(compareMessages));
       req.onerror = () => reject(req.error);
       tx.oncomplete = () => db.close();
     });

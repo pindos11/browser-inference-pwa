@@ -6,7 +6,10 @@ import { renderMarkdown } from './markdown';
 import { PROFILES, type Chat, type ChatMessage, type ModelFamily, type ModelInfo, type Preferences, type SessionBackupV1 } from './types';
 
 const id = () => crypto.randomUUID();
-const now = () => new Date().toISOString();
+let lastTimestamp = 0;
+// Give consecutively-created prompt/reply records a durable order even when
+// they are written during the same wall-clock millisecond.
+const now = () => { lastTimestamp = Math.max(Date.now(), lastTimestamp + 1); return new Date(lastTimestamp).toISOString(); };
 const newChat = (): Chat => ({ id: id(), title: 'New chat', createdAt: now(), updatedAt: now() });
 
 function MessageView({ message, isGenerating }: { message: ChatMessage; isGenerating: boolean }) {

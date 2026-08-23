@@ -1,4 +1,4 @@
-import { storage } from './db';
+import { compareMessages, storage } from './db';
 import type { Chat, ChatMessage, Preferences, SessionBackupV1 } from './types';
 
 const isRecord = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object';
@@ -8,7 +8,7 @@ export function validateBackup(value: unknown): value is SessionBackupV1 {
     && value.messages.every(m => isRecord(m) && typeof m.id === 'string' && typeof m.chatId === 'string' && typeof m.content === 'string');
 }
 export async function makeBackup(model: SessionBackupV1['model']): Promise<SessionBackupV1> {
-  return { version: 1, exportedAt: new Date().toISOString(), chats: await storage.all<Chat>('chats'), messages: await storage.all<ChatMessage>('messages'), preferences: (await storage.get<Preferences>('settings', 'preferences')) ?? { theme: 'dark' }, model };
+  return { version: 1, exportedAt: new Date().toISOString(), chats: await storage.all<Chat>('chats'), messages: (await storage.all<ChatMessage>('messages')).sort(compareMessages), preferences: (await storage.get<Preferences>('settings', 'preferences')) ?? { theme: 'dark' }, model };
 }
 export function mergeBackup(existing: SessionBackupV1, incoming: SessionBackupV1): SessionBackupV1 {
   const chats = new Map(existing.chats.map(x => [x.id, x])); incoming.chats.forEach(x => { if (!chats.has(x.id)) chats.set(x.id, x); });
